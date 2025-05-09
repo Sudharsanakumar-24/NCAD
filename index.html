@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ethereum Node Simulation</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; padding: 20px; }
+    h2, h3 { color: #333; }
+    .section { margin-top: 20px; }
+    .validator, .transaction, .block { border: 1px solid #ccc; padding: 10px; margin: 5px; border-radius: 5px; display: inline-block; width: 200px; vertical-align: top; background: #fff; }
+    .banned { background: #ffe0e0 !important; }
+    .cooling { background: #fff3cd !important; }
+    .valid { background: #e0ffe0 !important; }
+    button { padding: 10px 15px; margin: 5px; font-weight: bold; }
+    .reason { font-size: 0.9em; color: #a00; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <h2>Ethereum Private Network Node Simulation</h2>
+  <div>
+    <button onclick="addNewValidator()">Add Validator</button>
+    <button onclick="assignTransactions()">Assign Transactions</button>
+    <button onclick="validateAndBroadcast()">Validate & Broadcast</button>
+    <button onclick="reassignBannedTxs()">Reassign Banned Transactions</button>
+    <button onclick="simulateVoting()">Vote</button>
+    <button onclick="proposeBlock()">Propose Block</button>
+  </div>
+  <div id="validators" class="section"></div>
+  <div id="transactions" class="section"></div>
+  <div id="chain" class="section"></div>
+  <script>
+  let proposedBlocks = []; 
+  let validators = [];
+  let transactions = [];
+  let blockchain = [];
+  let txId = 1;
+  const DEFAULT_CREDIT = 50;
+  const MIN_VALIDATORS_FOR_BLOCK = 3;
+  const BAN_REASONS = [
+    "Low voting accuracy",
+    "Frequent downtime",
+    "Suspicious behavior",
+    "Excessive failed transactions",
+    "Malicious intent"
+  ];
+  let broadcastedTxs = [];
+  function addNewValidator() {
+    const id = validators.length + 1;
+    validators.push({
+      id: `V${id}`,
+      credit: DEFAULT_CREDIT,
+      load: 0,
+      performance: 100,
+      status: "active",
+      cooling: false,
+      bannedReason: null
+    });
+    render();
+  }
+  function assignTransactions() {
+    const txCount = 5;
+    for (let i = 0; i < txCount; i++) {
+      const eligible = validators.filter(v => v.credit >= DEFAULT_CREDIT && v.status === "active");
+      if (eligible.length === 0) continue;
+      const assigned = eligible.reduce((prev, curr) => prev.load <= curr.load ? prev : curr);
+      assigned.load++;
+      transactions.push({
+        id: `TX${txId++}`,
+        assignedTo: assigned.id,
+        status: "assigned",
+        votes: {}
+      });
+    }
+    render();
+  }
+  function validateAndBroadcast() {
+  broadcastedTxs = [];
+  transactions.forEach(tx => {
+    const validator = validators.find(v => v.id === tx.assignedTo);
+    if (!validator || validator.status !== "active") return;
+    const isValid = Math.random() > 0.2;
+    if (!isValid) {
+      validator.credit -= 10;
+      validator.performance -= 10;
+      if (validator.credit < DEFAULT_CREDIT && validator.status !== "banned") {
+        validator.status = "banned";
+        validator.cooling = true;
+        validator.bannedReason = BAN_REASONS[Math.floor(Math.random() * BAN_REASONS.length)];
+      }
+      tx.status = "failed";
+    } else {
+      tx.status = "broadcasted";
+      broadcastedTxs.push(tx);
+      validator.credit += 5;
+      validator.performance += 5;
+      if (validator.performance < 50) validator.cooling = true;
+    }
+  });
+const grouped = {};
+broadcastedTxs.forEach(tx => {
+  if (!grouped[tx.assignedTo]) grouped[tx.assignedTo] = [];
+  grouped[tx.assignedTo].push(tx);
+});
+proposedBlocks = Object.entries(grouped).map(([validatorId, txs], idx) => ({
+  id: idx + 1,
+  proposedBy: validatorId,
+  txs: txs,
+  votes: {},
+  status: "pending"
+}));
+  render();
+}
+  function reassignBannedTxs() {
+  const validValidators = validators.filter(v =>
+    v.status === "active" && v.credit >= DEFAULT_CREDIT
+  );
+  if (validValidators.length === 0) return;
+  let index = 0;
+  transactions.forEach(tx => {
+    const assignedValidator = validators.find(v => v.id === tx.assignedTo);
+    if (assignedValidator && assignedValidator.status === "banned") {
+      const newValidator = validValidators[index % validValidators.length];
+      tx.assignedTo = newValidator.id;
+      tx.status = "assigned";
+      newValidator.load++;
+      index++;
+    }
+  });
+  render();
+}
+  function simulateVoting() {
+  const activeValidators = validators.filter(v => v.status === "active");
+  const threshold = Math.ceil((2 / 3) * activeValidators.length);
+  let daoAssigned = false;
+  proposedBlocks.forEach((block, index) => {
+    block.votes = {};
+    let yesVotes = 0;
+    const shuffled = [...activeValidators].sort(() => 0.5 - Math.random());
+    if (!daoAssigned) {
+      const targetYes = Math.max(1, threshold - 1); 
+      for (let i = 0; i < shuffled.length; i++) {
+        const v = shuffled[i];
+        const vote = i < targetYes;
+        block.votes[v.id] = vote;
+        if (vote) yesVotes++;
+      }
+      block.status = "DAO Review";
+      daoAssigned = true;
+    } else {
+      const minYes = threshold;
+      const maxYes = activeValidators.length;
+      const targetYes = Math.floor(Math.random() * (maxYes - minYes + 1)) + minYes;
+      for (let i = 0; i < shuffled.length; i++) {
+        const v = shuffled[i];
+        const vote = i < targetYes;
+        block.votes[v.id] = vote;
+        if (vote) yesVotes++;
+      }
+      block.status = "consensus-reached";
+    }
+  });
+  render();
+}
+  function proposeBlock() {
+  const committed = proposedBlocks.filter(block => block.status === "consensus-reached");
+  committed.forEach(block => {
+    blockchain.push({
+      id: blockchain.length + 1,
+      proposedBy: block.proposedBy,
+      txs: block.txs.map(t => t.id)
+    });
+  });
+  const committedIds = committed.flatMap(b => b.txs.map(t => t.id));
+  transactions = transactions.filter(tx => !committedIds.includes(tx.id));
+  validators.forEach(v => v.load = 0);
+  broadcastedTxs = [];
+  proposedBlocks = [];
+  render();
+}
+  function showChain() {
+    const div = document.getElementById("chain");
+    div.innerHTML = "<h3>Blockchain</h3>";
+    blockchain.forEach(block => {
+      const b = document.createElement("div");
+      b.className = "block";
+      b.innerHTML = `Block #${block.id}<br/>Proposed by: ${block.proposedBy}<br/>TXs: ${block.txs.join(", ")}`;
+      div.appendChild(b);
+    });
+  }
+  function render() {
+  const valDiv = document.getElementById("validators");
+  valDiv.innerHTML = "<h3>Validators</h3>";
+  validators.forEach(v => {
+    const div = document.createElement("div");
+    div.className = `validator ${v.status === "banned" ? "banned" : v.cooling ? "cooling" : "valid"}`;
+    div.innerHTML = `
+      <strong>${v.id}</strong><br/>
+      Credit: ${v.credit}<br/>
+      Load: ${v.load}<br/>
+      Perf: ${v.performance}%<br/>
+      Status: ${v.status}<br/>
+      Cooling: ${v.cooling ? "Yes" : "No"}<br/>
+      ${v.bannedReason ? `<em>Reason: ${v.bannedReason}</em>` : ""}
+    `;
+    valDiv.appendChild(div);
+  });
+  const txDiv = document.getElementById("transactions");
+  txDiv.innerHTML = "<h3>Transactions</h3>";
+  transactions.forEach(tx => {
+    const div = document.createElement("div");
+    div.className = "transaction";
+    div.innerHTML = `
+      <strong>${tx.id}</strong><br/>
+      Assigned to: ${tx.assignedTo}<br/>
+      Status: ${tx.status}
+    `;
+    txDiv.appendChild(div);
+  });
+  const chainDiv = document.getElementById("chain");
+  chainDiv.innerHTML = "";
+  if (proposedBlocks && proposedBlocks.length > 0) {
+    const blockHeader = document.createElement("h3");
+    blockHeader.textContent = "Proposed Blocks (Voting Results)";
+    chainDiv.appendChild(blockHeader);
+    proposedBlocks.forEach(block => {
+      const b = document.createElement("div");
+      b.className = "block";
+      const voteSummary = Object.entries(block.votes)
+        .map(([k, v]) => `${k}: ${v ? 'Yes' : 'No'}`).join("<br/>");
+      b.innerHTML = `
+        <strong>Block #${block.id}</strong><br/>
+        Proposed by: ${block.proposedBy}<br/>
+        Status: ${block.status}<br/>
+        TXs: ${block.txs.map(t => t.id).join(", ")}<br/><hr/>
+        <small>${voteSummary}</small>
+      `;
+      chainDiv.appendChild(b);
+    });
+  }
+  if (blockchain.length > 0) {
+    const finalHeader = document.createElement("h3");
+    finalHeader.textContent = "Blockchain";
+    chainDiv.appendChild(finalHeader);
+    blockchain.forEach(block => {
+      const b = document.createElement("div");
+      b.className = "block";
+      b.innerHTML = `
+        Block #${block.id}<br/>
+        Proposed by: ${block.proposedBy}<br/>
+        TXs: ${block.txs.join(", ")}
+      `;
+      chainDiv.appendChild(b);
+    });
+  }
+}
+</script>
+</body>
+</html>
